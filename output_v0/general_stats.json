@@ -1,0 +1,102 @@
+{
+    "Count all": 126070,
+    "Count till 2009": 102227,
+    "Count tagged": 74932,
+    "Publication hist all": {
+        "Forward": 44256,
+        "Tablet Magazine": 7747,
+        "Commentary": 1111,
+        "Jewish Journal": 72956
+    },
+    "Publication hist till 2009": {
+        "Forward": 39056,
+        "Tablet Magazine": 6915,
+        "Commentary": 1111,
+        "Jewish Journal": 55145
+    },
+    "Publication hist tagged": {
+        "Forward": 32959,
+        "Tablet Magazine": 6873,
+        "Commentary": 970,
+        "Jewish Journal": 34130
+    },
+    "Tag groups hist": {
+        "Israel related tag": 30.275449741098598,
+        "American Jewry related tag": 14.190199113863237,
+        "US News tag": 19.727219345539957,
+        "World News tag": 16.378850157476112,
+        "Religion tag": 8.731916938023808
+    },
+    "Tag groups hist in Forward": {
+        "Israel related tag": 28.89650778239631,
+        "American Jewry related tag": 14.235868806699232,
+        "US News tag": 14.023483722200309,
+        "World News tag": 11.562850814648503,
+        "Religion tag": 4.4964956461057675
+    },
+    "Tag groups hist in Tablet Magazine": {
+        "Israel related tag": 23.017605121489886,
+        "American Jewry related tag": 7.9150298268587225,
+        "US News tag": 16.877637130801688,
+        "World News tag": 11.610650371017023,
+        "Religion tag": 17.881565546340752
+    },
+    "Tag groups hist in Commentary": {
+        "Israel related tag": 8.762886597938145,
+        "American Jewry related tag": 6.907216494845361,
+        "US News tag": 28.65979381443299,
+        "World News tag": 6.082474226804123,
+        "Religion tag": 2.1649484536082473
+    },
+    "Tag groups hist in Jewish Journal": {
+        "Israel related tag": 33.680046879578086,
+        "American Jewry related tag": 15.616759449164958,
+        "US News tag": 25.555230002929974,
+        "World News tag": 22.28244945795488,
+        "Religion tag": 11.166129504834457
+    },
+    "Tag groups hist in Blogs": {
+        "Israel related tag": 12.952773956900504,
+        "American Jewry related tag": 8.505272810637322,
+        "US News tag": 11.462631820265933,
+        "World News tag": 4.607977991746905,
+        "Religion tag": 12.150389729481889
+    },
+    "Tag groups hist in Culture": {
+        "Israel related tag": 10.0142418109587,
+        "American Jewry related tag": 13.40978937111161,
+        "US News tag": 8.380181395697473,
+        "World News tag": 6.648677010718837,
+        "Religion tag": 13.147440221872424
+    },
+    "Tag groups hist in Life": {
+        "Israel related tag": 11.054673069818987,
+        "American Jewry related tag": 5.707425193941633,
+        "US News tag": 3.6202438123383818,
+        "World News tag": 3.343184336904322,
+        "Religion tag": 14.065386036202439
+    },
+    "Tag groups hist in News": {
+        "Israel related tag": 45.405087487134246,
+        "American Jewry related tag": 16.80929275106602,
+        "US News tag": 27.919423614174388,
+        "World News tag": 26.146154977209235,
+        "Religion tag": 4.95515365387443
+    },
+    "Tag groups hist in Opinion": {
+        "Israel related tag": 34.386337492257326,
+        "American Jewry related tag": 18.051499867268383,
+        "US News tag": 27.519688523139546,
+        "World News tag": 15.786213609415096,
+        "Religion tag": 8.29130165472082
+    },
+    "Tag groups hist in Other": {
+        "Israel related tag": 23.996350364963504,
+        "American Jewry related tag": 9.032846715328468,
+        "US News tag": 15.328467153284672,
+        "World News tag": 13.503649635036496,
+        "Religion tag": 10.401459854014599
+    },
+    "israel in publications hist": 0.302754497410986,
+    "israel in sections hist": 0.302754497410986
+}
