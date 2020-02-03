@@ -6,6 +6,7 @@ import ast
 from scipy import stats
 import json
 import os
+from sklearn.decomposition import PCA
 
 def read_df(filename):
     df = pd.read_csv(filename)
@@ -16,12 +17,30 @@ def read_df(filename):
     df['qaurter'] = df['date'].apply(lambda x: date(x.year, int((x.month-1)/3)*3+1, 1))
     df['tags'] = df.tags.fillna("[]").apply(parse_tags)
     df['section'] = df.section.fillna("[]").apply(lambda x: "[\"%s\"]" % x if x != "[]" else x).apply(parse_tags)
+    df['title_score'] = df['google_sent_title_score']*df['google_sent_title_magnitude']
+    df['desc_score'] = df['google_sent_desc_score']*df['google_sent_desc_magnitude']    
+    df['title_score_normalized_magnitude'] = df['google_sent_title_score']*df['google_sent_title_normalized_magnitude'].fillna(0)
+    df['desc_score_normalized_magnitude'] = df['google_sent_desc_score']*df['google_sent_desc_normalized_magnitude'].fillna(0)    
+    
     for x in df.columns:
         if (not x.startswith("is") or not (x.endswith("tag") or x.endswith("section"))): continue
         df[x] = df[x].fillna(False)
 
     return df
 
+    
+def calc_score(df):
+    pca = PCA(n_components=1)
+    df['score'] = pca.fit_transform(np.array([df['title_score'], df['desc_score']]).T)
+    if pca.components_[0][0] < 0:
+        df['score'] *= (-1)
+    pca1 = PCA(n_components=1)
+    df['score_normalized_magnitude'] = pca1.fit_transform(np.array([df['title_score_normalized_magnitude'], df['desc_score_normalized_magnitude']]).T)
+    if pca1.components_[0][0] < 0:
+        df['score_normalized_magnitude'] *= (-1)
+    return pca.explained_variance_ratio_[0], pca1.explained_variance_ratio_[0]
+
+    
 def plot(df, title, xlabel, ylabel, secondary_y=None, secondary_ylabel=None):
     plt.close()
     fig, ax = plt.subplots()
@@ -97,7 +116,8 @@ def scatter(x, ys, title, xlabel, ylabel, with_formula=None, use_index=False):
 
 def heatmap(x, y, title, xlabel, ylabel,  bins=10, range=None, cmax=None):
     plt.close()
-    plt.hist2d(x, y, cmap='plasma', bins=bins, range=range, cmax=cmax)
+    plt.hist2d(x, y, cmap='magma_r', bins=bins)
+#    plt.hist2d(x, y, cmap='Oranges', bins=bins, range=range, cmax=cmax)
     cb = plt.colorbar()
     cb.set_label('# articles')
     plt.title(title)
@@ -160,7 +180,7 @@ def count_over_time(df, title, axis, time_label='Month', mode="regular", additio
             t['Overall'] = overall
             secondary_y = "Overall"
             secondary_ylabel="# articles"
-            sumcount = {k : v.sum()*100/overall.sum() for k, v in locs.items()}
+            sumcount = {k : v.sum()*100/additional_field_series.sum() for k, v in locs.items()}
     else:
         raise AssertionError("Received illegal mode %s" % mode)
     t = t.fillna(0)
@@ -210,45 +230,44 @@ def class_hist(df, class_list, n_overall, col):
                               index=['overall', 'untagged', 'ungrouped']).append(histogram)
     return histogram
 
-def score_by_tag(df, tag_classes):
+def score_by_tag(df, tag_classes, title, score_field='score'):
     dfs = {k: df.loc[df["is %s tag" %k].fillna(False)] for k in tag_classes}
     colors =  plt.rcParams['axes.prop_cycle'].by_key()['color']
     t = pd.DataFrame(
-        {'mean_score' : {k: v.score.mean() for k, v in dfs.items()},
-         'sterr' : {k: v.score.std()/np.sqrt(len(v.score)) for k, v in dfs.items()},
+        {'mean_score' : {k: v[score_field].mean() for k, v in dfs.items()},
+         'sterr' : {k: v[score_field].std()/np.sqrt(len(v[score_field])) for k, v in dfs.items()},
          'color' : colors[0] })
-    t.loc['All', 'mean_score'] = df.score.mean()
-    for i, tag in enumerate(['Israel related', 'Non-Israel related', 'All']):
+    for i, tag in enumerate(['Israel related', 'Non-Israel related']):
         t.loc[tag, 'color'] = colors[i+1]
     t = t.sort_values(by='mean_score', ascending=False)
-    barh(t.mean_score, t.sterr, t.color, "Mean score", "Mean Sentiment Score per Tag")
+    barh(t.mean_score, t.sterr, t.color, "Mean score", "Mean Sentiment Score per Tag (%s)" % title)
 
-def score_israel_vs_non_israel(df, axis, axis_name):
+def score_israel_vs_non_israel(df, axis, axis_name, title, score_field="score"):
     locs = {x: df["is %s" % x] for x in axis}
     t = {x : 
-            {k: df.loc[v & df["is %s tag" %k].fillna(False)].score.mean() 
+            {k: df.loc[v & df["is %s tag" %k].fillna(False)][score_field].mean() 
             for k in ["Israel related", "Non-Israel related"]} 
         for x, v in locs.items()}
     
     t_err = {x : 
-                {k: df.loc[v & df["is %s tag" %k].fillna(False)].score.std() / \
-                    np.sqrt(len( df.loc[v & df["is %s tag" %k].fillna(False)].score)) 
+                {k: df.loc[v & df["is %s tag" %k].fillna(False)][score_field].std() / \
+                    np.sqrt(len( df.loc[v & df["is %s tag" %k].fillna(False)][score_field])) 
                 for k in ["Israel related", "Non-Israel related"]} 
             for x, v in locs.items()}
     for x, v in locs.items():
-        t[x]["Overall"] = df.loc[v].score.mean()
+        t[x]["Overall"] = df.loc[v][score_field].mean()
         t_err[x]["Overall"] = None
         
-    bar(pd.DataFrame(t), error=pd.DataFrame(t_err), y_label="Mean score", title="Sentiment Score for Israel vs. Non Israel by %s" % axis_name)
+    bar(pd.DataFrame(t), error=pd.DataFrame(t_err), y_label="Mean score", title="Sentiment Score for Israel vs. Non Israel by %s (%s)" % (axis_name, title))
     
 
 def read_data():
-    d = r"C:\Users\orr\Dropbox\Documents\studies\CSUS\Jewish Media on Israel\Shortened output"
+    d = r"C:\Users\orr\Dropbox\Documents\studies\CSUS\Jewish Media on Israel\V2.1"
     general_stats = {}
     publications = ['Forward', 'Tablet Magazine', 'Commentary', 'Jewish Journal']
     tag_classes = ['Israel related', 'American Jewry related', 'US News', 'World News', 'Religion', 'Holocaust', 'Anti-Semitism', 'Identity politics', 'Arts and Culture', 'Life', 'Other', 'Academia', 'Environment', 'US history']
     section_classes = ['Blogs', 'Culture', 'Life', 'News', 'Opinion', 'Other']
-    df_all = read_df(os.path.join(d, "general output", "overall_meta.csv"))
+    df_all = read_df(os.path.join(d, "overall_meta_v1.csv"))
     general_stats['Count all'] = int(len(df_all))
     df_till_2009 = df_all.loc[(df_all.date > datetime(2009,4,1)) & (df_all.date < datetime(2019,6,1))]
     general_stats['Count till 2009'] = int(len(df_till_2009))
@@ -260,86 +279,142 @@ def read_data():
             (df_till_2009[["is %s section" % x for x in section_classes]].sum(axis=1) > 0))
     df = df_till_2009.loc[tagged_loc & sectioned_loc]
     general_stats['Count tagged'] = int(len(df))
-    return d, publications, tag_classes, section_classes, df_all, df_till_2009, tagged_loc, sectioned_loc, df, general_stats
+    general_stats['PCA explained variance'], general_stats['PCA explained variance normalized magnitude'] = calc_score(df)
+    df_wo_top_percentile_score = df.loc[(df.google_sent_title_magnitude <= df.google_sent_title_magnitude.quantile(0.99)) &
+                                             (df.google_sent_desc_magnitude <= df.google_sent_desc_magnitude.quantile(0.99))]
+    general_stats['Count tagged w/o top percentile score'] = int(len(df_wo_top_percentile_score))
+    general_stats['PCA explained variance w/o top percentile'], general_stats['PCA explained variance normalized magnitude w/o top percentile'] = calc_score(df_wo_top_percentile_score)
+    df_wo_zero_score = df.loc[(abs(df.title_score) > 0.00001) | (abs(df.desc_score)> 0.00001)]
+    general_stats['Count tagged w/o zero score'] = int(len(df_wo_zero_score))
+    general_stats['PCA explained variance w/o zero'], general_stats['PCA explained variance normalized magnitude w/o zero'] = calc_score(df_wo_zero_score)
+    df_wo_top_percentile_and_zero_score = df.loc[(df.google_sent_title_magnitude <= df.google_sent_title_magnitude.quantile(0.99)) &
+                                             (df.google_sent_desc_magnitude <= df.google_sent_desc_magnitude.quantile(0.99)) &
+                                             ((abs(df.title_score) > 0.00001) | (abs(df.desc_score)> 0.00001))]
+    general_stats['Count tagged w/o top percentile and zero score'] = int(len(df_wo_top_percentile_and_zero_score))
+    general_stats['PCA explained variance w/o top percentile and zero'], general_stats['PCA explained variance normalized magnitude w/o top percentile and zero score'] = calc_score(df_wo_top_percentile_and_zero_score)
+    df_wo_top_percentile_and_zero_score_normalized_magnitude = df.loc[
+        (df.google_sent_title_normalized_magnitude <= df.google_sent_title_normalized_magnitude.quantile(0.99)) &
+        (df.google_sent_desc_normalized_magnitude <= df.google_sent_desc_normalized_magnitude.quantile(0.99)) &
+        ((abs(df.title_score_normalized_magnitude) > 0.00001) | (abs(df.desc_score_normalized_magnitude)> 0.00001))]
+    general_stats['Count tagged w/o zero score normalized magnitude']  = int(len(df_wo_top_percentile_and_zero_score_normalized_magnitude)) 
+    general_stats['PCA explained variance w/o zero score normalized magnitude'], general_stats['PCA explained variance normalized magnitude w/o zero score and top percentile normalized magnitude'] = calc_score(df_wo_top_percentile_and_zero_score_normalized_magnitude)
+    return d, publications, tag_classes, section_classes, df_all, df_till_2009, tagged_loc, sectioned_loc, df, df_wo_top_percentile_score,df_wo_zero_score, df_wo_top_percentile_and_zero_score, df_wo_top_percentile_and_zero_score_normalized_magnitude, general_stats
 
 def main():
 
-    d, publications, tag_classes, section_classes, df_all, df_till_2009, tagged_loc, sectioned_loc, df, general_stats = read_data()
+    d, publications, tag_classes, section_classes, df_all, df_till_2009, tagged_loc, sectioned_loc, df, df_wo_top_percentile_score,df_wo_zero_score, df_wo_top_percentile_and_zero_score, df_wo_zero_score_normalized_magnitude, general_stats = read_data()
+    # dfs_by_score_cleaning = {"All Tagged Data " : df,
+    #                     "Without Top Precentile" : df_wo_top_percentile_score,
+    #                     "Without Zeros" : df_wo_zero_score, 
+    #                     "Without Top Percentile and Zeros" : df_wo_top_percentile_and_zero_score}
+    # dfs_by_score_nm_cleaning = {"All Tagged Data, Normalized Magnitude " : df,
+    #                     "Without Zeros According to Normalized Magnitude" : df_wo_zero_score_normalized_magnitude}
 
-    # Articles count
-    general_stats['Publication hist all'] = count_over_time(df_all, axis=publications, title="Number of Articles per Month by Publication (all data)")
-    general_stats['Publication hist till 2009'] = count_over_time(df_till_2009, axis=publications, title="Number of Articles per Month by Publication (from 2009)")
-    general_stats['Publication hist tagged'] = count_over_time(df, axis=publications, title="Number of Tagged Articles per Month by Publication (from 2009)")
-
-    # score graphs
-    heatmap(df['google_sent_title_score'], df['google_sent_title_magnitude'], title="Title Score Magnitude vs. Polarity", xlabel="Polarity", ylabel="Magnitude",  bins=100, range=[[-1, 1], [0,1]])
-    heatmap(df['google_sent_desc_score'], df['google_sent_desc_magnitude'], title="Description Score Magnitude vs. Polarity", xlabel="Polarity", ylabel="Magnitude",  bins=100, range=[[-1, 1], [0,1]])
-    heatmap(df['title_score'], df['desc_score'], title="Description Score vs. Title Score", xlabel="Title score", ylabel="Descriptions score", bins=100, range=[[-1, 1], [-1,1]], cmax=10000)
-    scatter(df['score'], {'Title score' : df['title_score'], 'Description score': df['desc_score']}, title="Description Score and Title Score vs. Combined Score", xlabel="Combined score", ylabel="Score", with_formula=True)
-    locs = df['desc_score'] == 0
-    scatter(df.loc[locs, 'score'], {'Title score' : df.loc[locs, 'title_score']}, title="Title Score vs. Combined Score when Description Score is 0", xlabel="Combined score", ylabel="Title score", with_formula=True)
-
-    # tags histogram
-
-    for publication in publications:
-        col = 'is %s' % publication
-        pub_df = df.loc[df[col]]
-        
-        feature_hist(pub_df, len(df_till_2009[sectioned_loc & df_till_2009[col]]), 'tags').to_csv(os.path.join(d, "V2.0", "tag_histogram", "%s.csv" % publication))
-        class_hist(pub_df, ["%s tag" % y for y in tag_classes], len(df_till_2009[sectioned_loc & df_till_2009[col]]), 'tags').to_csv(os.path.join(d, "V2.0", "tag_class_histogram", "%s.csv" % publication))
-        feature_hist(pub_df, len(df_till_2009[tagged_loc & df_till_2009[col]]), 'section').to_csv(os.path.join(d, "V2.0", "section_histogram", "%s.csv" % publication))
-        class_hist(pub_df, ["%s section" % y for y in section_classes], len(df_till_2009[tagged_loc & df_till_2009[col]]), "section").to_csv(os.path.join(d, "V2.0", "section_class_histogram", "%s.csv" % publication))
-
-    # Israel count
-    general_stats["Tag groups hist"] = count_over_time(df, axis=["%s tag" % x for x in tag_classes[:5]], 
-                                                        title="Percent of Articles For Each Tag Group per Month", 
-                                                        mode="percent")
-    for publication in publications:
-        general_stats["Tag groups hist in %s" % publication] = \
-            count_over_time(df.loc[df['is %s' % publication]], axis=["%s tag" % x for x in tag_classes[:5]], 
-                                    title="Percent of Articles For Each Tag Group per Month in %s" % publication, 
-                                    mode="percent")
-    for section in section_classes:
-        general_stats["Tag groups hist in %s" % section] = \
-            count_over_time(df.loc[df['is %s section' % section]], axis=["%s tag" % x for x in tag_classes[:5]], 
-                                    title="Percent of Articles For Each Tag Group per Month in %s" % section, 
-                                    mode="percent")
-    general_stats["israel in publications hist"] = count_over_time(df, axis=publications, 
-                                                        title="Percent of Israel-Related Articles per Month by Publication", 
-                                                        mode="percent",
-                                                        additional_field_series = df['is Israel related tag'])
-    general_stats["israel in sections hist"] = count_over_time(df, axis=["%s section" % x for x in section_classes[:5]], 
-                                                        title="Percent of Israel-Related Articles per Month by Section", 
-                                                        mode="percent",
-                                                        additional_field_series = df['is Israel related tag'])
-
-    # Israel vs. news
-    scatter(df.loc[df['is News section']].groupby('month')['fixed'].count()*100/df.groupby('month')['fixed'].count(), 
-            {'% Israel' : df.loc[df['is Israel related tag']].groupby('month')['fixed'].count()*100/df.groupby('month')['fixed'].count()},
-            title="% Israel per Month vs. % News per Month", 
-            xlabel="% News", ylabel="% Israel", with_formula=True)
-
-    # score
-    score_by_tag(df, tag_classes + ["Non-Israel related"])
-    score_israel_vs_non_israel(df, axis=publications, axis_name="Publication")
-    score_israel_vs_non_israel(df, axis=["%s section" % x for x in section_classes[:5]], axis_name="Section")
+    # # Articles count
+    # general_stats['Publication hist all'] = count_over_time(df_all, axis=publications, title="Number of Articles per Month by Publication (all data)")
+    # general_stats['Publication hist till 2009'] = count_over_time(df_till_2009, axis=publications, title="Number of Articles per Month by Publication (from 2009)")
+    # general_stats['Publication hist tagged'] = count_over_time(df, axis=publications, title="Number of Tagged Articles per Month by Publication (from 2009)")
+    # general_stats['Publication hist wo top percentile'] = count_over_time(df_wo_top_percentile_score, axis=publications, title="Number of Tagged Articles per Month w/o Top Percentile Score, by Publication (from 2009)")
+    # general_stats['Publication hist wo zeros'] = count_over_time(df_wo_zero_score, axis=publications, title="Number of Tagged Articles per Month w/o Zero Score, by Publication (from 2009)")
+    # general_stats['Publication hist wo zeros and top percentile'] = count_over_time(df_wo_top_percentile_and_zero_score, axis=publications, title="Number of Tagged Articles per Month w/o Top Percentile and Zero Score, by Publication (from 2009)")
     
+
+    # # score graphs
+    # for title, t_df in dfs_by_score_cleaning.items():
+    #     heatmap(t_df['google_sent_title_score'], t_df['google_sent_title_magnitude'], title="Title Score Magnitude vs. Polarity (%s)" % title, xlabel="Polarity", ylabel="Magnitude",  bins=100, range=[[-1, 1], [0,10]])
+    #     heatmap(t_df['google_sent_desc_score'], t_df['google_sent_desc_magnitude'], title="Description Score Magnitude vs. Polarity (%s)" % title, xlabel="Polarity", ylabel="Magnitude",  bins=100, range=[[-1, 1], [0,10]])
+    #     heatmap(t_df['title_score'], t_df['desc_score'], title="Description Score vs. Title Score (%s)" % title, xlabel="Title score", ylabel="Descriptions score", bins=100, range=[[-1, 1], [-1,1]], cmax=10000)
+    #     scatter(t_df['score'], {'Title score' : t_df['title_score'], 'Description score': t_df['desc_score']}, title="Description Score and Title Score vs. Combined Score (%s)" % title, xlabel="Combined score", ylabel="Score", with_formula=True)
+    #     locs = t_df['desc_score'] == 0
+    #     scatter(t_df.loc[locs, 'score'], {'Title score' : t_df.loc[locs, 'title_score']}, title="Title Score vs. Combined Score when Description Score is 0 (%s)" % title, xlabel="Combined score", ylabel="Title score", with_formula=True)
+    # for title, t_df in dfs_by_score_nm_cleaning.items():
+    #     heatmap(t_df['google_sent_title_score'], t_df['google_sent_title_normalized_magnitude'].fillna(0), title="Title Score Normalized Magnitude vs. Polarity (%s)" % title, xlabel="Polarity", ylabel="Magnitude",  bins=100, range=[[-1, 1], [0,10]])
+    #     heatmap(t_df['google_sent_desc_score'], t_df['google_sent_desc_normalized_magnitude'].fillna(0), title="Description Score Normalized Magnitude vs. Polarity (%s)" % title, xlabel="Polarity", ylabel="Magnitude",  bins=100, range=[[-1, 1], [0,10]])
+    #     heatmap(t_df['title_score_normalized_magnitude'], t_df['desc_score_normalized_magnitude'], title="Description Score vs. Title Score (%s)" % title, xlabel="Title score", ylabel="Descriptions score", bins=100, range=[[-1, 1], [-1,1]], cmax=10000)
+    #     scatter(t_df['score_normalized_magnitude'], {'Title score' : t_df['title_score_normalized_magnitude'], 'Description score': t_df['desc_score_normalized_magnitude']}, title="Description Score and Title Score vs. Combined Score (%s)" % title, xlabel="Combined score", ylabel="Score", with_formula=True)
+    #     locs = t_df['title_score_normalized_magnitude'] == 0
+    #     scatter(t_df.loc[locs, 'score_normalized_magnitude'], {'Description score' : t_df.loc[locs, 'desc_score_normalized_magnitude']}, title="Description Score vs. Combined Score when Title Score is 0 (%s)" % title, xlabel="Combined score", ylabel="Description score", with_formula=True)
+
+
+
+    # # tags histogram
+
+    # for publication in publications:
+    #     col = 'is %s' % publication
+    #     pub_df = df.loc[df[col]]
+        
+    #     feature_hist(pub_df, len(df_till_2009[sectioned_loc & df_till_2009[col]]), 'tags').to_csv(os.path.join(d, "output", "tag_histogram", "%s.csv" % publication))
+    #     class_hist(pub_df, ["%s tag" % y for y in tag_classes], len(df_till_2009[sectioned_loc & df_till_2009[col]]), 'tags').to_csv(os.path.join(d, "output", "tag_class_histogram", "%s.csv" % publication))
+    #     feature_hist(pub_df, len(df_till_2009[tagged_loc & df_till_2009[col]]), 'section').to_csv(os.path.join(d, "output", "section_histogram", "%s.csv" % publication))
+    #     class_hist(pub_df, ["%s section" % y for y in section_classes], len(df_till_2009[tagged_loc & df_till_2009[col]]), "section").to_csv(os.path.join(d, "output", "section_class_histogram", "%s.csv" % publication))
+
+    # # Israel count
+    # general_stats["Tag groups hist"] = count_over_time(df, axis=["%s tag" % x for x in tag_classes[:5]], 
+    #                                                     title="Percent of Articles For Each Tag Group per Month", 
+    #                                                     mode="percent")
+    # for publication in publications:
+    #     general_stats["Tag groups hist in %s" % publication] = \
+    #         count_over_time(df.loc[df['is %s' % publication]], axis=["%s tag" % x for x in tag_classes[:5]], 
+    #                                 title="Percent of Articles For Each Tag Group per Month in %s" % publication, 
+    #                                 mode="percent")
+    # for section in section_classes:
+    #     general_stats["Tag groups hist in %s" % section] = \
+    #         count_over_time(df.loc[df['is %s section' % section]], axis=["%s tag" % x for x in tag_classes[:5]], 
+    #                                 title="Percent of Articles For Each Tag Group per Month in %s" % section, 
+    #                                 mode="percent")
+    # general_stats["israel in publications hist"] = count_over_time(df, axis=publications, 
+    #                                                     title="Percent of Israel-Related Articles per Month by Publication", 
+    #                                                     mode="percent",
+    #                                                     additional_field_series = df['is Israel related tag'])
+    # general_stats["israel in sections hist"] = count_over_time(df, axis=["%s section" % x for x in section_classes[:5]], 
+    #                                                     title="Percent of Israel-Related Articles per Month by Section", 
+    #                                                     mode="percent",
+    #                                                     additional_field_series = df['is Israel related tag'])
+
+    # # Israel vs. news
+    # scatter(df.loc[df['is News section']].groupby('month')['fixed'].count()*100/df.groupby('month')['fixed'].count(), 
+    #         {'% Israel' : df.loc[df['is Israel related tag']].groupby('month')['fixed'].count()*100/df.groupby('month')['fixed'].count()},
+    #         title="% Israel per Month vs. % News per Month", 
+    #         xlabel="% News", ylabel="% Israel", with_formula=True)
+
+    # # score
+    # for title, t_df in dfs_by_score_cleaning.items():
+    #     score_by_tag(t_df, tag_classes + ["Non-Israel related"], title)
+    #     score_israel_vs_non_israel(t_df, axis=publications, axis_name="Publication", title=title)
+    #     score_israel_vs_non_israel(t_df, axis=["%s section" % x for x in section_classes[:5]], axis_name="Section", title=title)
+    # for title, t_df in dfs_by_score_nm_cleaning.items():
+    #     score_by_tag(t_df, tag_classes + ["Non-Israel related"], title, score_field="score_normalized_magnitude")
+    #     score_israel_vs_non_israel(t_df, axis=publications, axis_name="Publication", title=title, score_field="score_normalized_magnitude")
+    #     score_israel_vs_non_israel(t_df, axis=["%s section" % x for x in section_classes[:5]], axis_name="Section", title=title, score_field="score_normalized_magnitude")
+
+
     # score over time
     scatter(None,
-            {x : df.loc[df['is Israel related tag'] & df['is %s' % x]].groupby('date')['score'].mean() for x in publications},
+            {x : df_wo_top_percentile_and_zero_score.loc[df_wo_top_percentile_and_zero_score['is Israel related tag'] & df_wo_top_percentile_and_zero_score['is %s' % x]].groupby('date')['score'].mean() for x in publications},
             title="Israel Daily Mean Score over Time by Publication", 
             xlabel="Date", ylabel="Mean score", with_formula=True,
             use_index=True)
     scatter(None,
-            {x : df.loc[df['is Israel related tag'] & df['is %s section' % x]].groupby('date')['score'].mean() for x in section_classes[:5]},
+            {x : df_wo_top_percentile_and_zero_score.loc[df_wo_top_percentile_and_zero_score['is Israel related tag'] & df_wo_top_percentile_and_zero_score['is %s section' % x]].groupby('date')['score'].mean() for x in section_classes[:5]},
             title="Israel Daily Mean Score over Time by Section", 
+            xlabel="Date", ylabel="Mean score", with_formula=True,
+            use_index=True)
+    scatter(None,
+            {x : df_wo_zero_score_normalized_magnitude.loc[df_wo_zero_score_normalized_magnitude['is Israel related tag'] & df_wo_zero_score_normalized_magnitude['is %s' % x]].groupby('date')['score_normalized_magnitude'].mean() for x in publications},
+            title="Israel Daily Mean Score over Time by Publication (According to Normalized Magnitude)", 
+            xlabel="Date", ylabel="Mean score", with_formula=True,
+            use_index=True)
+    scatter(None,
+            {x : df_wo_zero_score_normalized_magnitude.loc[df_wo_zero_score_normalized_magnitude['is Israel related tag'] & df_wo_zero_score_normalized_magnitude['is %s section' % x]].groupby('date')['score_normalized_magnitude'].mean() for x in section_classes[:5]},
+            title="Israel Daily Mean Score over Time by Section (According to Normalized Magnitude)", 
             xlabel="Date", ylabel="Mean score", with_formula=True,
             use_index=True)
 
 
-    with open(os.path.join(d, "V2.0", "general_stats.json"), 'w') as f:
-        json.dump(general_stats, f, indent=4)
-    print(json.dumps(general_stats, indent=4))
 
-# if __name__ == "__main__":
-#     main()
+    # with open(os.path.join(d, "general_stats_1.json"), 'w') as f:
+    #     json.dump(general_stats, f, indent=4)
+    # print(json.dumps(general_stats, indent=4))
+
+if __name__ == "__main__":
+    main()
